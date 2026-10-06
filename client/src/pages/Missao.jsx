@@ -113,6 +113,7 @@ export default function Missao() {
   }
 
   function startGame() {
+    if (!name.trim()) return;
     accRef.current = 0; penRef.current = 0; runAtRef.current = 0;
     setErrs([0, 0, 0, 0, 0]); setStage(0); setElapsedMs(0);
     setPhase("countdown"); setCountdownN(3);
@@ -182,10 +183,11 @@ export default function Missao() {
               <h1>Missão Dev: contra o relógio</h1>
               <p className="lead">5 desafios de quem trabalha com sistemas. Quanto mais rápido, mais alto no ranking. Cada erro custa +{PENALTY} segundos.</p>
               <p>Os desafios mudam a cada partida, então não adianta decorar a do amigo.</p>
-              <label style={{ display: "block", fontWeight: 600, margin: "14px 0 6px" }}>Seu nome ou apelido</label>
+              <label style={{ display: "block", fontWeight: 600, margin: "14px 0 6px" }}>Seu nome ou apelido *</label>
               <input type="text" maxLength={18} placeholder="Ex.: Ana" autoComplete="off" value={name}
                 onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") startGame(); }} />
-              <br /><button className="go" onClick={startGame}>Valendo!</button>
+              <br /><button className="go" onClick={startGame} disabled={!name.trim()}>Valendo!</button>
+              {!name.trim() && <p className="hint" style={{ marginTop: 6 }}>Digite seu nome pra poder jogar.</p>}
             </div>
             <div>
               <h2 style={{ fontSize: 22 }}>Mais rápidos do dia</h2>
@@ -199,7 +201,10 @@ export default function Missao() {
         )}
 
         {phase === "playing" && (
-          <StageView stage={stage} onError={() => penalize(stage)} onSuccess={advance} />
+          // key={stage} força o React a remontar o componente a cada novo
+          // desafio -- sem isso, o estado interno (pergunta sorteada e
+          // feedback) continuava "grudado" no desafio anterior.
+          <StageView key={stage} stage={stage} onError={() => penalize(stage)} onSuccess={advance} />
         )}
 
         {phase === "finished" && (
