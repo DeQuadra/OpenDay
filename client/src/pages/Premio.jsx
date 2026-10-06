@@ -3,11 +3,11 @@ import { Link } from "react-router-dom";
 import { parseUA, submitEntry, deleteOwnEntry } from "../api.js";
 
 const PRIZES = [
-  { img: "/prizes/diamantes.jpg", emoji: "💎", name: "1000 Diamantes", hype: "Free Fire" },
-  { img: "/prizes/gemas.jpg", emoji: "👑", name: "800 Gemas", hype: "Clash Royale" },
-  { emoji: "🔫", name: "AWP | Gelo Compacto", hype: "CS2" },
+  { img: "/prizes/dimaff.jpeg", emoji: "💎", name: "1000 Diamantes", hype: "Free Fire" },
+  { img: "/prizes/gemaclash.jpeg", emoji: "👑", name: "800 Gemas", hype: "Clash Royale" },
+  { img: "/prizes/awp.jpeg", emoji: "🔫", name: "AWP | Gelo Compacto", hype: "CS2" },
   { emoji: "📚", name: "+2 pontos", hype: "Na matéria que quiser" },
-  { emoji: "🪙", name: "500 Robux", hype: "Roblox" },
+  { img: "/prizes/robux.jpeg", emoji: "🪙", name: "500 Robux", hype: "Roblox" },
   { emoji: "🎒", name: "Kit Boas-vindas DeQuadra", hype: "Mochila + brindes" },
 ];
 
