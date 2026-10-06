@@ -4,6 +4,7 @@ create table if not exists entries (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
   name text,
+  email text,
   prize_emoji text,
   prize_name text,
   prize_hype text,
@@ -37,9 +38,6 @@ create table if not exists quiz_scores (
 alter table entries enable row level security;
 alter table quiz_scores enable row level security;
 
--- Bucket de fotos (Storage): crie manualmente em Storage -> New bucket
---   nome: photos
---   public: true  (as fotos ficam acessíveis por URL direta, sem senha --
---                   é assim que o navegador do aluno e o painel admin
---                   conseguem exibi-las; não há como restringir por login
---                   simples no plano gratuito do Supabase Storage)
+-- Bucket de Storage "photos" NÃO é mais necessário: a foto agora vem
+-- direto da URL pública do avatar do Google (avatar_url do login OAuth),
+-- sem precisar fazer upload/hospedar a imagem no Supabase.

@@ -32,7 +32,7 @@ export default function Admin() {
       <div className="wrap">
         <div className="card loginbox">
           <h2>Painel do apresentador</h2>
-          <p style={{ color: "var(--soft)" }}>Esta área contém nome, foto, localização e IP dos participantes. Acesso restrito.</p>
+          <p style={{ color: "var(--soft)" }}>Esta área contém nome, e-mail, foto, localização e IP dos participantes. Acesso restrito.</p>
           <input type="password" placeholder="Senha do painel" value={password}
             onChange={e => setPassword(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") login(); }} />
@@ -46,7 +46,7 @@ export default function Admin() {
 
   const total = rows.length;
   const locN = rows.filter(r => r.lat != null).length;
-  const photoN = rows.filter(r => r.photo_path).length;
+  const googleN = rows.filter(r => r.email).length;
   const pct = n => total ? Math.round(n / total * 100) : 0;
   const pc = {};
   rows.forEach(r => { pc[r.prize_name] = (pc[r.prize_name] || 0) + 1; });
@@ -71,18 +71,19 @@ export default function Admin() {
       <div className="stats">
         <div className="stat"><div className="n">{total}</div><div className="l">pessoas resgataram</div></div>
         <div className="stat"><div className="n">{pct(locN)}%</div><div className="l">permitiram localização</div></div>
-        <div className="stat"><div className="n">{pct(photoN)}%</div><div className="l">tiraram foto</div></div>
+        <div className="stat"><div className="n">{pct(googleN)}%</div><div className="l">logaram com Google</div></div>
         <div className="stat"><div className="n">{top ? top[1] : 0}</div><div className="l">prêmio mais clicado{top ? `: ${top[0]}` : ""}</div></div>
       </div>
 
       <table>
-        <thead><tr><th>Hora</th><th>Nome</th><th>Foto</th><th>Prêmio</th><th>Aparelho</th><th>Local.</th><th>IP</th><th></th></tr></thead>
+        <thead><tr><th>Hora</th><th>Foto</th><th>Nome</th><th>E-mail</th><th>Prêmio</th><th>Aparelho</th><th>Local.</th><th>IP</th><th></th></tr></thead>
         <tbody>
           {total ? rows.map(r => (
             <tr key={r.id}>
               <td>{new Date(r.created_at).toLocaleTimeString("pt-BR")}</td>
-              <td>{r.name || "—"}</td>
               <td>{r.photo_path ? <img className="thumb" src={r.photo_path} alt="" /> : "—"}</td>
+              <td>{r.name || "—"}</td>
+              <td>{r.email || "—"}</td>
               <td>{r.prize_name}</td>
               <td>{r.device} • {r.os} • {r.browser}</td>
               <td className={r.lat != null ? "yes" : "no"}>
@@ -94,7 +95,7 @@ export default function Admin() {
               <td><button className="del" onClick={() => del(r.id)}>apagar</button></td>
             </tr>
           )) : (
-            <tr><td colSpan={8} style={{ color: "var(--soft)", padding: 16 }}>Ainda ninguém resgatou.</td></tr>
+            <tr><td colSpan={9} style={{ color: "var(--soft)", padding: 16 }}>Ainda ninguém resgatou.</td></tr>
           )}
         </tbody>
       </table>

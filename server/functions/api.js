@@ -2,7 +2,6 @@ require("dotenv").config();
 const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
-const multer = require("multer");
 const serverless = require("serverless-http");
 const { createClient } = require("@supabase/supabase-js");
 
@@ -12,7 +11,6 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "openday2026";
 // Segredo usado para assinar o token do painel (funções são stateless,
 // então não dá pra guardar sessão em memória como no server/index.js local).
 const TOKEN_SECRET = process.env.ADMIN_TOKEN_SECRET || ADMIN_PASSWORD + "-fallback-secret";
-const PHOTOS_BUCKET = "photos";
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.warn("⚠️  SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY não configurados. Configure nas variáveis de ambiente do Netlify.");
@@ -24,15 +22,6 @@ const router = express.Router();
 app.set("trust proxy", true);
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (!/^image\/(png|jpe?g|webp)$/.test(file.mimetype)) return cb(new Error("Formato de imagem inválido"));
-    cb(null, true);
-  },
-});
 
 function getIp(req) {
   let ip = req.headers["x-nf-client-connection-ip"] || req.ip || req.socket?.remoteAddress || "";
@@ -67,36 +56,27 @@ router.post("/admin/login", (req, res) => {
   res.json({ token: signToken() });
 });
 
-/* ===================== CAPTURA DO FORMULÁRIO (tela do presente) ===================== */
-router.post("/entries", upload.single("photo"), async (req, res) => {
+/* ===================== CAPTURA DO FORMULÁRIO (tela do presente) =====================
+   Nome/e-mail/foto vêm do login real com o Google (Supabase Auth, feito no navegador);
+   aqui só recebemos o perfil já lido, mais o que só o servidor pode saber (IP). A foto
+   é só a URL pública do avatar do Google -- não precisa upload nem Storage. */
+router.post("/entries", async (req, res) => {
   try {
     const b = req.body || {};
-    if (!b.consent || b.consent === "false") {
+    if (!b.consent) {
       return res.status(400).json({ error: "consentimento é obrigatório" });
-    }
-
-    let photo_url = null;
-    if (req.file) {
-      const ext = req.file.mimetype === "image/png" ? "png" : "jpg";
-      const filename = `${crypto.randomUUID()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from(PHOTOS_BUCKET).upload(filename, req.file.buffer, {
-        contentType: req.file.mimetype,
-        upsert: false,
-      });
-      if (upErr) throw upErr;
-      const { data } = supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(filename);
-      photo_url = data.publicUrl;
     }
 
     const row = {
       name: (b.name || "").slice(0, 120),
+      email: (b.email || "").slice(0, 160),
       prize_emoji: b.prize_emoji || null,
       prize_name: b.prize_name || null,
       prize_hype: b.prize_hype || null,
-      photo_url,
-      lat: b.lat ? Number(b.lat) : null,
-      lon: b.lon ? Number(b.lon) : null,
-      accuracy: b.accuracy ? Number(b.accuracy) : null,
+      photo_url: b.photo_url || null,
+      lat: b.lat != null ? Number(b.lat) : null,
+      lon: b.lon != null ? Number(b.lon) : null,
+      accuracy: b.accuracy != null ? Number(b.accuracy) : null,
       ip: getIp(req),
       user_agent: req.headers["user-agent"] || "",
       os: b.os || null,
@@ -117,17 +97,10 @@ router.post("/entries", upload.single("photo"), async (req, res) => {
   }
 });
 
-async function deletePhotoIfAny(photo_url) {
-  if (!photo_url) return;
-  const filename = photo_url.split("/").pop();
-  await supabase.storage.from(PHOTOS_BUCKET).remove([filename]);
-}
-
 // O próprio participante pode apagar o registro dele na hora (tela de revelação)
 router.delete("/entries/:id/self", async (req, res) => {
-  const { data: row } = await supabase.from("entries").select("photo_url").eq("id", req.params.id).single();
+  const { data: row } = await supabase.from("entries").select("id").eq("id", req.params.id).single();
   if (!row) return res.status(404).json({ error: "não encontrado" });
-  await deletePhotoIfAny(row.photo_url);
   await supabase.from("entries").delete().eq("id", req.params.id);
   res.json({ ok: true });
 });
@@ -145,16 +118,11 @@ router.get("/entries", requireAdmin, async (req, res) => {
 });
 
 router.delete("/entries/:id", requireAdmin, async (req, res) => {
-  const { data: row } = await supabase.from("entries").select("photo_url").eq("id", req.params.id).single();
-  if (row) await deletePhotoIfAny(row.photo_url);
   await supabase.from("entries").delete().eq("id", req.params.id);
   res.json({ ok: true });
 });
 
 router.delete("/entries", requireAdmin, async (req, res) => {
-  const { data: rows } = await supabase.from("entries").select("photo_url");
-  const files = (rows || []).map(r => r.photo_url).filter(Boolean).map(u => u.split("/").pop());
-  if (files.length) await supabase.storage.from(PHOTOS_BUCKET).remove(files);
   await supabase.from("entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
   res.json({ ok: true });
 });
@@ -184,4 +152,4 @@ router.get("/quiz-scores", async (req, res) => {
 app.use("/api", router);
 app.use("/.netlify/functions/api", router);
 
-module.exports.handler = serverless(app, { binary: ["multipart/form-data"] });
+module.exports.handler = serverless(app);

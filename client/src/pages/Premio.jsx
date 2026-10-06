@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { parseUA, submitEntry, deleteOwnEntry } from "../api.js";
+import { supabase, supabaseConfigured, googleProfileFromUser } from "../supabaseClient.js";
 
 const PRIZES = [
   { img: "/prizes/dimaff.jpeg", emoji: "💎", name: "1000 Diamantes", hype: "Free Fire" },
@@ -11,13 +12,39 @@ const PRIZES = [
   { emoji: "🎒", name: "Kit Boas-vindas DeQuadra", hype: "Mochila + brindes" },
 ];
 
+const STORAGE_KEY = "premio_chosen_prize";
+
 export default function Premio() {
   const [screen, setScreen] = useState("prizes"); // prizes | claim | loading | reveal
   const [chosen, setChosen] = useState(null);
   const [entryId, setEntryId] = useState(null);
-  const [capturedAt] = useState(() => new Date());
+  const [profile, setProfile] = useState(null); // {name,email,avatarUrl} vindos do Google
+  const [session, setSession] = useState(null);
   const [seconds, setSeconds] = useState(179);
   const timerRef = useRef(null);
+
+  // Restaura o prêmio escolhido e a sessão do Google ao voltar do redirect
+  // do login (uma navegação de página inteira apaga o estado do React).
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY);
+      if (saved) setChosen(JSON.parse(saved));
+    } catch (e) {}
+
+    if (!supabaseConfigured) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (session) setProfile(googleProfileFromUser(session.user));
+  }, [session]);
+
+  // Se voltou do login do Google e já tinha escolhido um prêmio antes de ir, pula direto pro resgate
+  useEffect(() => {
+    if (chosen && (session || !supabaseConfigured) && screen === "prizes") setScreen("claim");
+  }, [chosen, session, screen]);
 
   useEffect(() => {
     if (screen !== "prizes") { clearInterval(timerRef.current); return; }
@@ -28,17 +55,27 @@ export default function Premio() {
   const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
   const ss = String(seconds % 60).padStart(2, "0");
 
+  function pickPrize(p) {
+    setChosen(p);
+    try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(p)); } catch (e) {}
+    setScreen("claim");
+  }
+
   if (screen === "prizes") {
     return (
       <div className="scam">
+        <div className="hero">
+          <div className="wrap2">
+            <div className="flare"><span className="tag">🎉 SORTEIO EXCLUSIVO OPEN DAY</span></div>
+            <h1 className="win">VOCÊ FOI <span className="spark">SELECIONADO!</span></h1>
+            <p className="sub">Parabéns! Seu número foi sorteado agora. Escolha <b>1 prêmio</b> e resgate antes que o tempo acabe:</p>
+            <div className="timer">{mm}:{ss}<small>o prêmio expira quando o cronômetro zerar</small></div>
+          </div>
+        </div>
         <div className="wrap2">
-          <div className="flare"><span className="tag">🎉 SORTEIO EXCLUSIVO OPEN DAY</span></div>
-          <h1 className="win">VOCÊ FOI <span className="spark">SELECIONADO!</span></h1>
-          <p className="sub">Parabéns! Seu número foi sorteado agora. Escolha <b>1 prêmio</b> e resgate antes que o tempo acabe:</p>
-          <div className="timer">{mm}:{ss}<small>o prêmio expira quando o cronômetro zerar</small></div>
           <div className="grid">
             {PRIZES.map((p, i) => (
-              <button key={i} className="prize" onClick={() => { setChosen(p); setScreen("claim"); }}>
+              <button key={i} className="prize" onClick={() => pickPrize(p)}>
                 <div className="imgwrap">
                   {p.img ? <img src={p.img} alt={p.name} /> : <div className="emoji">{p.emoji}</div>}
                 </div>
@@ -54,9 +91,8 @@ export default function Premio() {
   }
 
   if (screen === "claim") {
-    return <ClaimScreen chosen={chosen}
-      onCancel={() => setScreen("prizes")}
-      onSubmitted={id => { setEntryId(id); setScreen("reveal"); }}
+    return <ClaimScreen chosen={chosen} session={session} profile={profile}
+      onSubmitted={id => { setEntryId(id); try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {} setScreen("reveal"); }}
       setLoading={() => setScreen("loading")} />;
   }
 
@@ -70,45 +106,36 @@ export default function Premio() {
     );
   }
 
-  return <RevealScreen chosen={chosen} entryId={entryId} onRestart={() => { setChosen(null); setEntryId(null); setScreen("prizes"); }} />;
+  return <RevealScreen chosen={chosen} entryId={entryId} profile={profile}
+    onRestart={async () => {
+      setChosen(null); setEntryId(null);
+      try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {}
+      if (supabaseConfigured) await supabase.auth.signOut();
+      setScreen("prizes");
+    }} />;
 }
 
-function ClaimScreen({ chosen, onSubmitted, setLoading }) {
-  const [name, setName] = useState("");
-  const [consent, setConsent] = useState(false);
+function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
   const [locState, setLocState] = useState("idle"); // idle | loading | done | denied
   const [coords, setCoords] = useState(null);
-  const [camState, setCamState] = useState("idle"); // idle | live | captured | denied
-  const [photoBlob, setPhotoBlob] = useState(null);
-  const [photoUrl, setPhotoUrl] = useState(null);
   const [sending, setSending] = useState(false);
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
+  const [devName, setDevName] = useState(""); // só usado no fallback sem Supabase configurado
 
-  useEffect(() => () => { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); }, []);
-
-  async function openCamera() {
+  async function loginGoogle() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-      streamRef.current = stream;
-      setCamState("live");
-      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 0);
-    } catch (e) { setCamState("denied"); }
-  }
-
-  function takePhoto() {
-    const video = videoRef.current;
-    if (!video) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 320;
-    canvas.height = video.videoHeight || 240;
-    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(blob => {
-      setPhotoBlob(blob);
-      setPhotoUrl(URL.createObjectURL(blob));
-      setCamState("captured");
-      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    }, "image/jpeg", 0.85);
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/premio`,
+          // Sem pedir esses escopos explicitamente, o Google às vezes não
+          // devolve nome/foto -- só o e-mail.
+          scopes: "openid email profile",
+          // "consent" força o Google a reexibir a tela de permissão e conceder
+          // os escopos novos, mesmo que o aluno já tenha logado antes sem eles.
+          queryParams: { prompt: "consent", access_type: "offline" },
+        },
+      });
+    } catch (e) { alert("Não foi possível abrir o login do Google: " + e.message); }
   }
 
   function askLocation() {
@@ -120,29 +147,41 @@ function ClaimScreen({ chosen, onSubmitted, setLoading }) {
     );
   }
 
-  const canSubmit = consent && name.trim().length > 0 && !sending;
+  const loggedIn = supabaseConfigured ? Boolean(session) : devName.trim().length > 0;
+
+  // Assim que o login (Google ou o nome de teste local) estiver pronto,
+  // pede a localização automaticamente, sem esperar o aluno clicar em nada.
+  useEffect(() => {
+    if (loggedIn && locState === "idle") askLocation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedIn]);
+
+  const effectiveName = supabaseConfigured ? profile?.name : devName.trim();
+  const canSubmit = loggedIn && locState === "done" && !sending;
 
   async function submit() {
     if (!canSubmit) return;
     setSending(true);
     setLoading();
     const u = parseUA();
-    const fd = new FormData();
-    fd.append("name", name.trim());
-    fd.append("prize_emoji", chosen.emoji);
-    fd.append("prize_name", chosen.name);
-    fd.append("prize_hype", chosen.hype);
-    fd.append("consent", "true");
-    fd.append("os", u.os);
-    fd.append("browser", u.br);
-    fd.append("device", u.device);
-    fd.append("language", navigator.language || "");
-    fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
-    fd.append("screen", `${screen?.width || window.screen.width}×${window.screen.height}`);
-    if (coords) { fd.append("lat", coords.lat); fd.append("lon", coords.lon); fd.append("accuracy", coords.acc); }
-    if (photoBlob) fd.append("photo", photoBlob, "foto.jpg");
+    const payload = {
+      name: effectiveName || "",
+      email: supabaseConfigured ? (profile?.email || "") : "",
+      prize_emoji: chosen.emoji,
+      prize_name: chosen.name,
+      prize_hype: chosen.hype,
+      consent: true,
+      os: u.os,
+      browser: u.br,
+      device: u.device,
+      language: navigator.language || "",
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      screen: `${window.screen.width}×${window.screen.height}`,
+      photo_url: supabaseConfigured ? (profile?.avatarUrl || null) : null,
+    };
+    if (coords) { payload.lat = coords.lat; payload.lon = coords.lon; payload.accuracy = coords.acc; }
     try {
-      const res = await submitEntry(fd);
+      const res = await submitEntry(payload);
       onSubmitted(res.id);
     } catch (e) {
       alert("Não foi possível enviar: " + e.message);
@@ -153,43 +192,56 @@ function ClaimScreen({ chosen, onSubmitted, setLoading }) {
   return (
     <div className="scam"><div className="wrap2"><div className="ticket">
       <h2>Quase lá! 🎁</h2>
-      <p>Para liberar <span className="chosen">{chosen.name} • {chosen.hype}</span>, preencha os dados abaixo:</p>
+      <p>Para liberar <span className="chosen">{chosen.name} • {chosen.hype}</span>, faça os passos abaixo:</p>
 
       <div className="step2">
-        <span className="fieldlabel">Seu nome</span>
-        <input className="textinput" type="text" placeholder="Como podemos te chamar?" value={name} onChange={e => setName(e.target.value)} />
+        <span className="fieldlabel">Obrigatório para liberar</span>
 
-        <span className="fieldlabel">Foto (opcional)</span>
-        <div className="camwrap">
-          {camState === "idle" && <button className="gbtn" onClick={openCamera}>📷 Ativar câmera e tirar foto</button>}
-          {camState === "denied" && <p className="hint" style={{ margin: 0 }}>Câmera não permitida. Tudo bem, pode seguir sem foto.</p>}
-          {camState === "live" && (<>
-            <video ref={videoRef} muted playsInline />
-            <button className="gbtn" style={{ marginTop: 8 }} onClick={takePhoto}>📸 Tirar foto agora</button>
-          </>)}
-          {camState === "captured" && (<>
-            <img className="preview" src={photoUrl} alt="Sua foto" />
-            <button className="gbtn" style={{ marginTop: 8 }} onClick={() => { setCamState("idle"); setPhotoBlob(null); setPhotoUrl(null); }}>🔁 Tirar outra</button>
-          </>)}
-        </div>
+        {supabaseConfigured ? (
+          session ? (
+            <div className="gbtn done" style={{ cursor: "default" }}>
+              {profile?.avatarUrl && <img src={profile.avatarUrl} alt="" style={{ width: 22, height: 22, borderRadius: "50%" }} />}
+              ✓ Conectado como {profile?.name || profile?.email}
+            </div>
+          ) : (
+            <button className="gbtn" onClick={loginGoogle}>
+              <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.8-6.8C35.6 2.4 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9.1h12.4c-.5 2.9-2.1 5.3-4.6 7l7.1 5.5c4.2-3.9 6.6-9.6 6.6-16z"/><path fill="#FBBC05" d="M10.5 28.3c-.5-1.4-.8-2.9-.8-4.3s.3-3 .8-4.3l-7.9-6.1C1 16.9 0 20.3 0 24s1 7.1 2.6 10.1l7.9-5.8z"/><path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.1-5.5c-2 1.3-4.6 2.1-8.1 2.1-6.3 0-11.6-3.7-13.5-9l-7.9 5.8C6.5 42.6 14.6 48 24 48z"/></svg>
+              Entrar com Google para resgatar
+            </button>
+          )
+        ) : (
+          <>
+            <input className="textinput" type="text" placeholder="(modo teste local sem Supabase) seu nome"
+              value={devName} onChange={e => setDevName(e.target.value)} />
+            <p className="hint" style={{ marginTop: 4 }}>Login com Google não está configurado neste ambiente (falta VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY) — usando um campo de nome só para teste local.</p>
+          </>
+        )}
 
-        <button className={"locbtn" + (locState === "done" ? " done" : "")} onClick={askLocation} disabled={locState === "loading"}>
-          {locState === "done" ? "✓ Localização confirmada" : locState === "loading" ? "📍 Localizando..." : "📍 Permitir localização (confirmar presença no evento)"}
+        <button className={"locbtn " + locState} onClick={askLocation} disabled={locState === "loading" || locState === "done"}>
+          <span className="locicon">{locState === "done" ? "✓" : locState === "denied" ? "⚠️" : "📍"}</span>
+          <span className="loctext">
+            <span className="loctitle">
+              {locState === "done" ? "Localização confirmada"
+                : locState === "loading" ? "Localizando..."
+                : locState === "denied" ? "Localização não permitida"
+                : "Permitir localização"}
+            </span>
+            <span className="locsub">
+              {locState === "done" ? "Presença no evento confirmada"
+                : locState === "loading" ? "Aguardando resposta do navegador"
+                : locState === "denied" ? "Toque para tentar de novo"
+                : "Confirma sua presença no evento"}
+            </span>
+          </span>
         </button>
-
-        <label className="consent">
-          <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />
-          <span>Entendo que este formulário é uma atividade da aula de Segurança Digital (ADS) e que meus dados preenchidos acima ficarão salvos para o painel do apresentador. Posso apagá-los a qualquer momento na próxima tela.</span>
-        </label>
       </div>
 
       <button className="redeem" disabled={!canSubmit} onClick={submit}>Resgatar prêmio agora</button>
-      <p className="mini">🔒 Veja na próxima tela, com total transparência, tudo o que foi capturado — e apague se quiser.</p>
     </div></div></div>
   );
 }
 
-function RevealScreen({ chosen, entryId, onRestart }) {
+function RevealScreen({ chosen, entryId, profile, onRestart }) {
   const [erased, setErased] = useState(false);
   const u = parseUA();
   const now = new Date();
@@ -206,7 +258,7 @@ function RevealScreen({ chosen, entryId, onRestart }) {
     <div className="reveal"><div className="wrap">
       <div className="alert">
         <div className="bang">🚨 Esse prêmio não existe.</div>
-        <p className="intro">Mas tudo o que você acabou de preencher, existe de verdade. Veja o que este formulário "bobo" registrou sobre você:</p>
+        <p className="intro">Mas a sua conta Google que você acabou de conectar, existe de verdade. Veja o que este formulário "bobo" conseguiu de você em segundos:</p>
 
         {erased ? (
           <div className="safe">✅ Seu registro foi apagado agora mesmo do banco de dados, como prometido.</div>
@@ -214,26 +266,35 @@ function RevealScreen({ chosen, entryId, onRestart }) {
           <div className="realbox">⚠️ Diferente de um site qualquer, <b>aqui a gente te mostra e te deixa apagar</b>. Em um golpe de verdade, ninguém te conta isso nem te dá essa opção.</div>
         )}
 
-        <h3 className="sec">O que foi registrado neste formulário</h3>
+        <h3 className="sec">O que foi capturado de verdade</h3>
+        {profile && (
+          <div className="d hot gface" style={{ marginBottom: 10 }}>
+            {profile.avatarUrl
+              ? <img className="pic" src={profile.avatarUrl} alt="" />
+              : <div className="pic">🙂</div>}
+            <div>
+              <div className="v">{profile.name || "(sem nome)"}</div>
+              <div className="k" style={{ marginTop: 2 }}>{profile.email}</div>
+            </div>
+          </div>
+        )}
         <div className="datacard">
-          <div className="d hot"><div className="k">Nome informado</div><div className="v">(o que você digitou)</div></div>
           <div className="d"><div className="k">Seu aparelho</div><div className="v">{u.device} • {u.os}</div></div>
           <div className="d"><div className="k">Navegador</div><div className="v">{u.br}</div></div>
           <div className="d"><div className="k">Idioma do sistema</div><div className="v">{lang}</div></div>
           <div className="d"><div className="k">Fuso / relógio</div><div className="v">{tz} — {now.toLocaleTimeString("pt-BR")}</div></div>
           <div className="d"><div className="k">Tamanho da tela</div><div className="v">{scr}</div></div>
-          <div className="d hot"><div className="k">📍 Localização (se você permitiu)</div><div className="v">Enviada ao servidor com sua permissão</div></div>
-          <div className="d hot"><div className="k">📷 Foto (se você tirou)</div><div className="v">Salva no servidor com sua permissão</div></div>
+          <div className="d hot"><div className="k">📍 Localização</div><div className="v">Enviada ao servidor com sua permissão</div></div>
           <div className="d hot"><div className="k">Seu endereço de internet (IP)</div><div className="v">Registrado automaticamente pelo servidor</div></div>
         </div>
 
         <h3 className="sec">A real</h3>
-        <p className="lesson">Nem todo mundo que parece legal é bonzinho. "Prêmio grátis" é a isca mais antiga da internet — quem cai entrega nome, foto, localização e dados do aparelho sem perceber o tanto que isso revela.</p>
+        <p className="lesson">Nem todo mundo que parece legal é bonzinho. "Prêmio grátis" é a isca mais antiga da internet — e um botão "Entrar com Google" igual a esse é usado de verdade em golpes de phishing. A única diferença entre um golpe de verdade e o nosso: no golpe de verdade, o botão te leva pra uma <b>cópia falsa</b> da tela do Google, não pro accounts.google.com de verdade — e eles guardam sua senha digitada lá.</p>
         <h3 className="sec">Como não cair numa dessas</h3>
         <ul className="tips">
           <li>Prêmio que você não se inscreveu pra ganhar? Quase sempre é golpe.</li>
           <li>Cronômetro e "últimas unidades" existem pra te apressar e te fazer errar.</li>
-          <li>Nunca dê câmera/localização pra um site que você não conhece.</li>
+          <li>Antes de clicar em "Entrar com Google", olhe a barra de endereço: tem que ser <b>accounts.google.com</b>, nunca outro domínio.</li>
           <li>Desconfie de QR Code espalhado por aí — você não sabe pra onde ele leva.</li>
           <li>Um site sério sempre diz pra que serve cada dado e deixa você apagar.</li>
         </ul>

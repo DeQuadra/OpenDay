@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS entries (
   id TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL,
   name TEXT,
+  email TEXT,
   prize_emoji TEXT,
   prize_name TEXT,
   prize_hype TEXT,

@@ -18,8 +18,12 @@ export function parseUA() {
   return { os, br, device };
 }
 
-export async function submitEntry(formData) {
-  const res = await fetch(`${BASE}/api/entries`, { method: "POST", body: formData });
+export async function submitEntry(payload) {
+  const res = await fetch(`${BASE}/api/entries`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
   if (!res.ok) throw new Error((await res.json()).error || "falha ao enviar");
   return res.json();
 }

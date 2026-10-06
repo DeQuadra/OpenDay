@@ -3,18 +3,21 @@
 Site com duas telas para a atividade de Segurança Digital do curso de ADS:
 
 - **`/missao`** — quiz "Missão Dev: contra o relógio" (5 desafios + ranking + QR Code no final).
-- **`/premio`** — o "sorteio" (golpe simulado): o aluno escolhe um prêmio, preenche nome, foto e
-  localização, resgata — e na tela seguinte o site **revela o que capturou de verdade**, ensinando
-  sobre phishing.
+- **`/premio`** — o "sorteio" (golpe simulado): o aluno escolhe um prêmio, faz **login de verdade
+  com o Google** (nome, e-mail e foto vêm da conta real) e permite localização — e na tela seguinte
+  o site **revela o que capturou de verdade**, ensinando sobre phishing.
 - **`/admin`** — painel do apresentador (protegido por senha): mostra todos os resgates em tempo
   real, com foto, nome, localização (link pro mapa) e IP de cada participante, e permite apagar
   registros.
 
 ## ⚠️ Antes de usar com pessoas reais
 
-Esta atividade captura dados pessoais de verdade (nome, foto, geolocalização, IP). Para isso ser
-ético:
+Esta atividade captura dados pessoais de verdade — via login real com o Google (nome, e-mail,
+foto), geolocalização e IP. Para isso ser ético:
 
+- O login é feito pela tela genuína do Google (accounts.google.com) via Supabase Auth — nenhuma
+  senha é capturada pelo site, e o aluno vê exatamente o que está autorizando, como em qualquer
+  "Entrar com Google" de um app real.
 - O formulário em `/premio` tem uma **caixa de consentimento obrigatória** explicando que é uma
   atividade da aula e que os dados vão para o painel do apresentador.
 - A tela de revelação dá ao participante um botão **"Apagar meus dados agora"**, imediato.
@@ -25,6 +28,12 @@ Esta atividade captura dados pessoais de verdade (nome, foto, geolocalização, 
   localizações de alunos guardadas depois da atividade.
 
 ## Como rodar
+
+> **Sobre o login com Google:** ele só funciona de verdade com o Supabase configurado (veja a
+> seção "Hospedar de verdade" abaixo) — o Google exige uma URL de redirecionamento fixa e
+> registrada, o que não dá pra fazer com um IP local variável. Rodando só localmente
+> (`npm run dev` / `npm start`, sem `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`), a tela do
+> prêmio usa um campo de nome simples só para teste — deixa isso claro na tela.
 
 ```bash
 npm run install:all   # instala backend (raiz) e frontend (client/)
@@ -89,19 +98,38 @@ uma segunda implementação da API (`server/functions/api.js`) que troca SQLite/
 1. Crie uma conta e um projeto em [supabase.com](https://supabase.com) (plano gratuito já serve).
 2. Vá em **SQL Editor** → cole o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) → **Run**.
    Isso cria as tabelas `entries` (cadastros do sorteio) e `quiz_scores` (ranking da Missão Dev).
-3. Vá em **Storage** → **New bucket** → nome `photos` → marque **Public bucket** → criar.
-   (precisa ser público pra foto aparecer no painel do apresentador e na tela do aluno; os nomes de
-   arquivo são aleatórios/imprevisíveis, então não dá pra adivinhar a URL de outra pessoa).
-4. Em **Project Settings → API**, anote:
-   - **Project URL** → vai virar `SUPABASE_URL`
-   - **service_role key** (não é a `anon`/pública!) → vai virar `SUPABASE_SERVICE_ROLE_KEY`
-     — essa chave é secreta, só é usada dentro da função do Netlify, nunca no navegador.
+3. Em **Project Settings → API**, anote:
+   - **Project URL** → vira `SUPABASE_URL` (servidor) e também `VITE_SUPABASE_URL` (site)
+   - **anon / public key** → vira `VITE_SUPABASE_ANON_KEY` (essa pode ficar exposta no navegador,
+     é assim que o Supabase funciona)
+   - **service_role key** (não é a `anon`!) → vira `SUPABASE_SERVICE_ROLE_KEY` — essa é secreta, só
+     é usada dentro da função do Netlify, nunca no navegador.
 
-### 2. Publicar no Netlify
+### 2. Ativar o login com Google (Supabase Auth)
 
-Como este projeto ainda não é um repositório git, a forma mais rápida é publicar direto pela CLI,
-sem precisar subir pro GitHub:
+1. No [Google Cloud Console](https://console.cloud.google.com/apis/credentials), crie um
+   **OAuth 2.0 Client ID** do tipo **Web application**.
+2. Em **Authorized redirect URIs**, adicione (troque `<project-ref>` pelo ID do seu projeto
+   Supabase, visível na URL do painel):
+   ```
+   https://<project-ref>.supabase.co/auth/v1/callback
+   ```
+3. Copie o **Client ID** e o **Client Secret** gerados.
+4. No painel do Supabase: **Authentication → Providers → Google** → ative → cole o Client ID e o
+   Client Secret → **Save**.
+5. Ainda em Authentication, vá em **URL Configuration** e configure:
+   - **Site URL**: a URL do seu site no Netlify (ex: `https://seu-site.netlify.app`)
+   - **Redirect URLs**: adicione `https://seu-site.netlify.app/premio` (e, se for testar local com
+     ngrok, adicione também a URL do ngrok + `/premio`)
 
+### 3. Publicar no Netlify
+
+O projeto já é um repositório git (ligado a `github.com/DeQuadra/OpenDay`). No painel do Netlify:
+**Add new site → Import an existing project** → conecte o GitHub → selecione o repositório. O
+`netlify.toml` já está configurado (build do `client/`, função em `server/functions/`, e os
+redirects de `/api/*` e das rotas do site), então não precisa mexer em build settings.
+
+Alternativa via CLI, sem depender do GitHub:
 ```bash
 npm install -g netlify-cli
 netlify login
@@ -109,29 +137,29 @@ netlify init        # escolha "Create & configure a new site"
 netlify deploy --prod
 ```
 
-O `netlify.toml` já está configurado (build do `client/`, função em `server/functions/`, e os
-redirects de `/api/*` e das rotas do site). Se preferir conectar por um repositório Git (GitHub
-etc.) depois, basta `git init`, subir o repo, e ligar o site pelo painel do Netlify — o
-`netlify.toml` funciona do mesmo jeito.
-
-### 3. Configurar as variáveis de ambiente no Netlify
+### 4. Configurar as variáveis de ambiente no Netlify
 
 No painel do site → **Site configuration → Environment variables**, adicione:
 
-| Variável | Valor |
-|---|---|
-| `SUPABASE_URL` | a Project URL do Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | a service_role key do Supabase |
-| `ADMIN_PASSWORD` | senha do painel `/admin` (troque a padrão!) |
-| `ADMIN_TOKEN_SECRET` | qualquer string aleatória longa (ex: gere com `openssl rand -hex 32`) |
+| Variável | Valor | Usada por |
+|---|---|---|
+| `SUPABASE_URL` | a Project URL do Supabase | servidor (função) |
+| `SUPABASE_SERVICE_ROLE_KEY` | a service_role key do Supabase | servidor (função) |
+| `ADMIN_PASSWORD` | senha do painel `/admin` (troque a padrão!) | servidor (função) |
+| `ADMIN_TOKEN_SECRET` | string aleatória longa (ex: `openssl rand -hex 32`) | servidor (função) |
+| `VITE_SUPABASE_URL` | a mesma Project URL do Supabase | site (build do React) |
+| `VITE_SUPABASE_ANON_KEY` | a anon/public key do Supabase | site (build do React) |
 
-Depois de salvar, faça um novo deploy (`netlify deploy --prod`) pra elas serem aplicadas na função.
+As duas `VITE_*` são lidas em tempo de **build** pelo Vite (é assim que o login do Google funciona
+direto do navegador do aluno), as outras são lidas em tempo de execução pela função. Depois de
+salvar, faça um novo deploy (**Trigger deploy**, ou `netlify deploy --prod` pela CLI) para elas
+serem aplicadas.
 
-### 4. Testar
+### 5. Testar
 
 Acesse a URL que o Netlify te deu (ex: `https://seu-site.netlify.app/missao`). Como é HTTPS, a
-câmera e a localização funcionam normalmente em qualquer aparelho, de qualquer rede — é só escanear
-o QR Code gerado no fim da Missão Dev.
+localização funciona normalmente em qualquer aparelho, de qualquer rede, e o botão "Entrar com
+Google" abre a tela real do Google — é só escanear o QR Code gerado no fim da Missão Dev.
 
 ## Estrutura
 
@@ -139,8 +167,8 @@ o QR Code gerado no fim da Missão Dev.
 server/index.js           API local (Express + SQLite) — usada em "npm run dev" / "npm start"
 server/functions/api.js   Mesma API, versão Netlify Function (Express + Supabase)
 supabase/schema.sql       Script SQL das tabelas do Supabase
+client/src/supabaseClient.js  Cliente do Supabase Auth usado pelo login com Google
 client/                   Site React (Vite) com as rotas /missao, /premio, /admin
-uploads/                  Fotos no modo local (gerado em runtime, fora do git)
 data/                     Banco SQLite no modo local (gerado em runtime, fora do git)
 netlify.toml              Configuração de build/redirects do Netlify
 ```
@@ -149,8 +177,14 @@ netlify.toml              Configuração de build/redirects do Netlify
 
 - Prêmio "iPhone 16" trocado por **"Kit Boas-vindas DeQuadra"** (mais realista para um brinde de
   evento interno).
-- Prêmio de Clash Royale ajustado para **"800 Gemas"**.
+- Prêmio de Clash Royale ajustado para **"800 Gemas"**; fotos reais nos prêmios (Diamantes, Gemas,
+  AWP, Robux).
 - Captura de dados deixou de ser só local/Supabase-opcional e passou a ser um **backend real**
-  (Express + SQLite), com upload de foto e geolocalização de verdade, IP capturado no servidor, e
-  acessível de qualquer aparelho na rede via `/admin`.
+  (Express + SQLite em dev, Supabase em produção), com geolocalização de verdade, IP capturado no
+  servidor, e acessível de qualquer aparelho na rede via `/admin`.
+- Nome, e-mail e foto deixaram de ser digitados/tirados manualmente: agora vêm de um **login real
+  com o Google** (Supabase Auth + OAuth do Google), a mesma tela genuína do Google que qualquer
+  "Entrar com Google" de um app de verdade usa.
+- Visual redesenhado: paleta branco / preto / `#D31C5B`, sombras suaves, sempre no tema claro
+  (não segue dark mode do sistema, de propósito).
 - Adicionado consentimento explícito e botão de autoexclusão de dados (ver seção acima).

@@ -4,37 +4,16 @@ const fs = require("fs");
 const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
-const multer = require("multer");
 const db = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "openday2026";
 
-const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
 // Respeita X-Forwarded-For caso o site rode atrás de um proxy/túnel (ex: ngrok, nginx)
 app.set("trust proxy", true);
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
-app.use("/uploads", express.static(UPLOAD_DIR));
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = (file.mimetype === "image/png") ? ".png" : ".jpg";
-    cb(null, `${crypto.randomUUID()}${ext}`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (!/^image\/(png|jpe?g|webp)$/.test(file.mimetype)) return cb(new Error("Formato de imagem inválido"));
-    cb(null, true);
-  },
-});
 
 function getIp(req) {
   // req.ip já respeita X-Forwarded-For com trust proxy ligado
@@ -60,35 +39,37 @@ app.post("/api/admin/login", (req, res) => {
   res.json({ token });
 });
 
-/* ===================== CAPTURA DO FORMULÁRIO (tela do presente) ===================== */
-app.post("/api/entries", upload.single("photo"), (req, res) => {
+/* ===================== CAPTURA DO FORMULÁRIO (tela do presente) =====================
+   Nome/e-mail/foto vêm do login real com o Google (Supabase Auth, feito no navegador);
+   aqui só recebemos o perfil já lido, mais o que só o servidor pode saber (IP). */
+app.post("/api/entries", (req, res) => {
   try {
     const b = req.body || {};
-    if (!b.consent || b.consent === "false") {
+    if (!b.consent) {
       return res.status(400).json({ error: "consentimento é obrigatório" });
     }
     const id = crypto.randomUUID();
-    const photoPath = req.file ? `/uploads/${req.file.filename}` : null;
 
     db.prepare(`
       INSERT INTO entries (
-        id, created_at, name, prize_emoji, prize_name, prize_hype,
+        id, created_at, name, email, prize_emoji, prize_name, prize_hype,
         photo_path, lat, lon, accuracy, ip, user_agent,
         os, browser, device, language, timezone, screen, consent
-      ) VALUES (@id,@created_at,@name,@prize_emoji,@prize_name,@prize_hype,
+      ) VALUES (@id,@created_at,@name,@email,@prize_emoji,@prize_name,@prize_hype,
         @photo_path,@lat,@lon,@accuracy,@ip,@user_agent,
         @os,@browser,@device,@language,@timezone,@screen,1)
     `).run({
       id,
       created_at: Date.now(),
       name: (b.name || "").slice(0, 120),
+      email: (b.email || "").slice(0, 160),
       prize_emoji: b.prize_emoji || null,
       prize_name: b.prize_name || null,
       prize_hype: b.prize_hype || null,
-      photo_path: photoPath,
-      lat: b.lat ? Number(b.lat) : null,
-      lon: b.lon ? Number(b.lon) : null,
-      accuracy: b.accuracy ? Number(b.accuracy) : null,
+      photo_path: b.photo_url || null,
+      lat: b.lat != null ? Number(b.lat) : null,
+      lon: b.lon != null ? Number(b.lon) : null,
+      accuracy: b.accuracy != null ? Number(b.accuracy) : null,
       ip: getIp(req),
       user_agent: req.headers["user-agent"] || "",
       os: b.os || null,
@@ -108,12 +89,8 @@ app.post("/api/entries", upload.single("photo"), (req, res) => {
 
 // O próprio participante pode apagar o registro dele na hora (mostrado na tela de revelação)
 app.delete("/api/entries/:id/self", (req, res) => {
-  const row = db.prepare("SELECT photo_path FROM entries WHERE id=?").get(req.params.id);
+  const row = db.prepare("SELECT id FROM entries WHERE id=?").get(req.params.id);
   if (!row) return res.status(404).json({ error: "não encontrado" });
-  if (row.photo_path) {
-    const p = path.join(UPLOAD_DIR, path.basename(row.photo_path));
-    fs.unlink(p, () => {});
-  }
   db.prepare("DELETE FROM entries WHERE id=?").run(req.params.id);
   res.json({ ok: true });
 });
@@ -125,18 +102,11 @@ app.get("/api/entries", requireAdmin, (req, res) => {
 });
 
 app.delete("/api/entries/:id", requireAdmin, (req, res) => {
-  const row = db.prepare("SELECT photo_path FROM entries WHERE id=?").get(req.params.id);
-  if (row && row.photo_path) {
-    const p = path.join(UPLOAD_DIR, path.basename(row.photo_path));
-    fs.unlink(p, () => {});
-  }
   db.prepare("DELETE FROM entries WHERE id=?").run(req.params.id);
   res.json({ ok: true });
 });
 
 app.delete("/api/entries", requireAdmin, (req, res) => {
-  const rows = db.prepare("SELECT photo_path FROM entries").all();
-  rows.forEach(r => { if (r.photo_path) fs.unlink(path.join(UPLOAD_DIR, path.basename(r.photo_path)), () => {}); });
   db.prepare("DELETE FROM entries").run();
   res.json({ ok: true });
 });
