@@ -6,6 +6,13 @@
   publish = "client/dist"
   functions = "server/functions"
 
+[build.environment]
+  # SUPABASE_URL/VITE_SUPABASE_URL não são segredo (é só o endereço público
+  # do projeto, o mesmo que já fica exposto no JS do navegador) -- sem isso
+  # o scanner de segredos do Netlify falha o build por "coincidência" com o
+  # valor que aparece em arquivos de exemplo do repositório.
+  SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL,VITE_SUPABASE_URL"
+
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["@supabase/supabase-js"]

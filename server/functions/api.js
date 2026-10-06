@@ -7,7 +7,7 @@ const { createClient } = require("@supabase/supabase-js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "openday2026";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "troque-esta-senha";
 // Segredo usado para assinar o token do painel (funções são stateless,
 // então não dá pra guardar sessão em memória como no server/index.js local).
 const TOKEN_SECRET = process.env.ADMIN_TOKEN_SECRET || ADMIN_PASSWORD + "-fallback-secret";

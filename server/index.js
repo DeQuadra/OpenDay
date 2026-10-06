@@ -8,7 +8,7 @@ const db = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "openday2026";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "troque-esta-senha";
 
 // Respeita X-Forwarded-For caso o site rode atrás de um proxy/túnel (ex: ngrok, nginx)
 app.set("trust proxy", true);
