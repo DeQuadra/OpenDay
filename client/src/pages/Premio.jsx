@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { parseUA, submitEntry, deleteOwnEntry } from "../api.js";
+import { parseUA, submitEntry } from "../api.js";
 import { supabase, supabaseConfigured, googleProfileFromUser } from "../supabaseClient.js";
 
 const PRIZES = [
   { img: "/prizes/dimaff.jpeg", emoji: "💎", name: "1000 Diamantes", hype: "Free Fire" },
   { img: "/prizes/gemaclash.jpeg", emoji: "👑", name: "800 Gemas", hype: "Clash Royale" },
   { img: "/prizes/awp.jpeg", emoji: "🔫", name: "AWP | Gelo Compacto", hype: "CS2" },
-  { emoji: "📚", name: "+2 pontos", hype: "Na matéria que quiser" },
   { img: "/prizes/robux.jpeg", emoji: "🪙", name: "500 Robux", hype: "Roblox" },
+  { img: "/prizes/maquiagem.jpeg", emoji: "💄", name: "Kit de Maquiagem", hype: "Edição Open Day" },
+  { img: "/prizes/pelucia.jpeg", emoji: "🧸", name: "Pelúcia Colecionável", hype: "Kit com 4 personagens" },
+  { emoji: "📚", name: "+2 pontos", hype: "Na matéria que quiser" },
   { emoji: "🎒", name: "Kit Boas-vindas DeQuadra", hype: "Mochila + brindes" },
 ];
 
@@ -18,6 +20,8 @@ export default function Premio() {
   const [screen, setScreen] = useState("prizes"); // prizes | claim | loading | reveal
   const [chosen, setChosen] = useState(null);
   const [entryId, setEntryId] = useState(null);
+  const [capturedIp, setCapturedIp] = useState(null);
+  const [capturedCoords, setCapturedCoords] = useState(null);
   const [profile, setProfile] = useState(null); // {name,email,avatarUrl} vindos do Google
   const [session, setSession] = useState(null);
   const [seconds, setSeconds] = useState(179);
@@ -67,8 +71,8 @@ export default function Premio() {
         <div className="hero">
           <div className="wrap2">
             <div className="flare"><span className="tag">🎉 SORTEIO EXCLUSIVO OPEN DAY</span></div>
-            <h1 className="win">VOCÊ FOI <span className="spark">SELECIONADO!</span></h1>
-            <p className="sub">Parabéns! Seu número foi sorteado agora. Escolha <b>1 prêmio</b> e resgate antes que o tempo acabe:</p>
+            <h1 className="win">POR TER VINDO NO EVENTO <span className="spark">VOCÊ GANHOU!</span></h1>
+            <p className="sub">Você ganhou um dos presentes abaixo: escolha já o seu antes que o tempo acabe:</p>
             <div className="timer">{mm}:{ss}<small>o prêmio expira quando o cronômetro zerar</small></div>
           </div>
         </div>
@@ -84,7 +88,7 @@ export default function Premio() {
               </button>
             ))}
           </div>
-          <p className="stock">🔥 Mais de 4.300 pessoas resgataram hoje • restam poucas unidades</p>
+          <p className="stock">🔥 Mais de 35 pessoas resgataram hoje • restam poucas unidades</p>
         </div>
       </div>
     );
@@ -92,7 +96,11 @@ export default function Premio() {
 
   if (screen === "claim") {
     return <ClaimScreen chosen={chosen} session={session} profile={profile}
-      onSubmitted={id => { setEntryId(id); try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {} setScreen("reveal"); }}
+      onSubmitted={(id, ip, coords) => {
+        setEntryId(id); setCapturedIp(ip); setCapturedCoords(coords);
+        try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {}
+        setScreen("reveal");
+      }}
       setLoading={() => setScreen("loading")} />;
   }
 
@@ -106,13 +114,7 @@ export default function Premio() {
     );
   }
 
-  return <RevealScreen chosen={chosen} entryId={entryId} profile={profile}
-    onRestart={async () => {
-      setChosen(null); setEntryId(null);
-      try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {}
-      if (supabaseConfigured) await supabase.auth.signOut();
-      setScreen("prizes");
-    }} />;
+  return <RevealScreen chosen={chosen} entryId={entryId} profile={profile} ip={capturedIp} coords={capturedCoords} />;
 }
 
 function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
@@ -182,7 +184,7 @@ function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
     if (coords) { payload.lat = coords.lat; payload.lon = coords.lon; payload.accuracy = coords.acc; }
     try {
       const res = await submitEntry(payload);
-      onSubmitted(res.id);
+      onSubmitted(res.id, res.ip, coords);
     } catch (e) {
       alert("Não foi possível enviar: " + e.message);
       setSending(false);
@@ -200,7 +202,7 @@ function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
         {supabaseConfigured ? (
           session ? (
             <div className="gbtn done" style={{ cursor: "default" }}>
-              {profile?.avatarUrl && <img src={profile.avatarUrl} alt="" style={{ width: 22, height: 22, borderRadius: "50%" }} />}
+              {profile?.avatarUrl && <img src={profile.avatarUrl} alt="" referrerPolicy="no-referrer" style={{ width: 22, height: 22, borderRadius: "50%" }} />}
               ✓ Conectado como {profile?.name || profile?.email}
             </div>
           ) : (
@@ -218,21 +220,10 @@ function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
         )}
 
         <button className={"locbtn " + locState} onClick={askLocation} disabled={locState === "loading" || locState === "done"}>
-          <span className="locicon">{locState === "done" ? "✓" : locState === "denied" ? "⚠️" : "📍"}</span>
-          <span className="loctext">
-            <span className="loctitle">
-              {locState === "done" ? "Localização confirmada"
-                : locState === "loading" ? "Localizando..."
-                : locState === "denied" ? "Localização não permitida"
-                : "Permitir localização"}
-            </span>
-            <span className="locsub">
-              {locState === "done" ? "Presença no evento confirmada"
-                : locState === "loading" ? "Aguardando resposta do navegador"
-                : locState === "denied" ? "Toque para tentar de novo"
-                : "Confirma sua presença no evento"}
-            </span>
-          </span>
+          {locState === "done" ? "✓ Localização confirmada"
+            : locState === "loading" ? "📍 Localizando..."
+            : locState === "denied" ? "⚠️ Toque para tentar de novo"
+            : "📍 Permitir localização"}
         </button>
       </div>
 
@@ -241,18 +232,13 @@ function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
   );
 }
 
-function RevealScreen({ chosen, entryId, profile, onRestart }) {
-  const [erased, setErased] = useState(false);
+function RevealScreen({ chosen, entryId, profile, ip, coords }) {
   const u = parseUA();
   const now = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "—";
   const lang = navigator.language || "—";
   const scr = `${window.screen.width}×${window.screen.height}`;
-
-  async function eraseMine() {
-    if (!entryId) return;
-    try { await deleteOwnEntry(entryId); setErased(true); } catch (e) {}
-  }
+  const mapSrc = coords ? `https://maps.google.com/maps?q=${coords.lat},${coords.lon}&z=15&output=embed` : null;
 
   return (
     <div className="reveal"><div className="wrap">
@@ -260,17 +246,11 @@ function RevealScreen({ chosen, entryId, profile, onRestart }) {
         <div className="bang">🚨 Esse prêmio não existe.</div>
         <p className="intro">Mas a sua conta Google que você acabou de conectar, existe de verdade. Veja o que este formulário "bobo" conseguiu de você em segundos:</p>
 
-        {erased ? (
-          <div className="safe">✅ Seu registro foi apagado agora mesmo do banco de dados, como prometido.</div>
-        ) : (
-          <div className="realbox">⚠️ Diferente de um site qualquer, <b>aqui a gente te mostra e te deixa apagar</b>. Em um golpe de verdade, ninguém te conta isso nem te dá essa opção.</div>
-        )}
-
         <h3 className="sec">O que foi capturado de verdade</h3>
         {profile && (
           <div className="d hot gface" style={{ marginBottom: 10 }}>
             {profile.avatarUrl
-              ? <img className="pic" src={profile.avatarUrl} alt="" />
+              ? <img className="pic" src={profile.avatarUrl} alt="" referrerPolicy="no-referrer" />
               : <div className="pic">🙂</div>}
             <div>
               <div className="v">{profile.name || "(sem nome)"}</div>
@@ -284,9 +264,25 @@ function RevealScreen({ chosen, entryId, profile, onRestart }) {
           <div className="d"><div className="k">Idioma do sistema</div><div className="v">{lang}</div></div>
           <div className="d"><div className="k">Fuso / relógio</div><div className="v">{tz} — {now.toLocaleTimeString("pt-BR")}</div></div>
           <div className="d"><div className="k">Tamanho da tela</div><div className="v">{scr}</div></div>
-          <div className="d hot"><div className="k">📍 Localização</div><div className="v">Enviada ao servidor com sua permissão</div></div>
-          <div className="d hot"><div className="k">Seu endereço de internet (IP)</div><div className="v">Registrado automaticamente pelo servidor</div></div>
+          <div className="d hot"><div className="k">Seu endereço de internet (IP)</div><div className="v">{ip || "—"}</div></div>
         </div>
+
+        {mapSrc && (
+          <>
+            <h3 className="sec">📍 Sua localização, em tempo real</h3>
+            <div style={{ borderRadius: 14, overflow: "hidden", border: "1px solid var(--line)", marginBottom: 4 }}>
+              <iframe
+                title="Sua localização"
+                src={mapSrc}
+                width="100%"
+                height="260"
+                style={{ border: 0, display: "block" }}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </div>
+          </>
+        )}
 
         <h3 className="sec">A real</h3>
         <p className="lesson">Nem todo mundo que parece legal é bonzinho. "Prêmio grátis" é a isca mais antiga da internet — e um botão "Entrar com Google" igual a esse é usado de verdade em golpes de phishing. A única diferença entre um golpe de verdade e o nosso: no golpe de verdade, o botão te leva pra uma <b>cópia falsa</b> da tela do Google, não pro accounts.google.com de verdade — e eles guardam sua senha digitada lá.</p>
@@ -296,12 +292,10 @@ function RevealScreen({ chosen, entryId, profile, onRestart }) {
           <li>Cronômetro e "últimas unidades" existem pra te apressar e te fazer errar.</li>
           <li>Antes de clicar em "Entrar com Google", olhe a barra de endereço: tem que ser <b>accounts.google.com</b>, nunca outro domínio.</li>
           <li>Desconfie de QR Code espalhado por aí — você não sabe pra onde ele leva.</li>
-          <li>Um site sério sempre diz pra que serve cada dado e deixa você apagar.</li>
+          <li>Um site sério sempre diz pra que serve cada dado antes de pedir.</li>
         </ul>
         <div className="ads">Isto é <b>Segurança Digital</b>, uma das áreas de <b>Análise e Desenvolvimento de Sistemas</b>. Em ADS a gente aprende os dois lados: como construir sistemas <b>e</b> como proteger as pessoas que usam eles.</div>
 
-        {!erased && entryId && <button className="erase" onClick={eraseMine}>🗑️ Apagar meus dados agora</button>}
-        <button className="ghost" onClick={onRestart}>Começar de novo (próximo colega)</button>
         <Link className="adminlink" to="/admin">· painel do apresentador ·</Link>
       </div>
     </div></div>

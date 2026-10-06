@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
 import { postQuizScore, fetchQuizScores } from "../api.js";
 
 const PENALTY = 10;
@@ -156,7 +155,6 @@ export default function Missao() {
   }
 
   const totalErr = errs.reduce((a, b) => a + b, 0);
-  const premioUrl = `${window.location.origin}/premio`;
 
   return (
     <div className="wrap">
@@ -206,7 +204,7 @@ export default function Missao() {
 
         {phase === "finished" && (
           <FinishView name={name} elapsedMs={elapsedMs} errs={errs} totalErr={totalErr} rank={rank} myScoreId={myScoreId}
-            onAgain={() => { setPhase("start"); setName(""); }} premioUrl={premioUrl} />
+            onAgain={() => { setPhase("start"); setName(""); }} />
         )}
       </main>
     </div>
@@ -401,7 +399,7 @@ function DataChart({ bars }) {
   );
 }
 
-function FinishView({ name, elapsedMs, errs, totalErr, rank, myScoreId, onAgain, premioUrl }) {
+function FinishView({ name, elapsedMs, errs, totalErr, rank, myScoreId, onAgain }) {
   const pos = rank.findIndex(r => r.id === myScoreId) + 1;
   const medalText = pos === 1 ? "🥇 Novo recorde do dia!" : pos === 2 ? "🥈 2º lugar!" : pos === 3 ? "🥉 3º lugar!" : pos > 0 ? `Você está em ${pos}º lugar` : "";
   const stars = STAGES.filter((_, i) => errs[i] === 0);
@@ -427,13 +425,6 @@ function FinishView({ name, elapsedMs, errs, totalErr, rank, myScoreId, onAgain,
         ))}
       </div>
       <p>O sistema da Semana Acadêmica que está rodando aqui no notebook passou por essas mesmas etapas.</p>
-      <div className="qrbox">
-        <div id="qr"><QRCodeSVG value={premioUrl} size={138} fgColor="#18214D" bgColor="#ffffff" level="M" /></div>
-        <div>
-          <h2 style={{ fontSize: 22, marginBottom: 6 }}>🎁 Antes de sair: tem prêmio pra você!</h2>
-          <p style={{ margin: 0 }}>Aponte a câmera do celular pro QR Code e resgate seu prêmio por ter concluído a missão.</p>
-        </div>
-      </div>
       <button className="go" onClick={onAgain}>Próximo jogador</button>
     </>
   );
