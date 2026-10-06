@@ -3,11 +3,11 @@ import { Link } from "react-router-dom";
 import { parseUA, submitEntry, deleteOwnEntry } from "../api.js";
 
 const PRIZES = [
-  { emoji: "💎", name: "1000 Diamantes", hype: "Free Fire" },
-  { emoji: "👑", name: "800 Gemas", hype: "Clash Royale" },
+  { img: "/prizes/diamantes.jpg", emoji: "💎", name: "1000 Diamantes", hype: "Free Fire" },
+  { img: "/prizes/gemas.jpg", emoji: "👑", name: "800 Gemas", hype: "Clash Royale" },
   { emoji: "🔫", name: "AWP | Gelo Compacto", hype: "CS2" },
   { emoji: "📚", name: "+2 pontos", hype: "Na matéria que quiser" },
-  { emoji: "🎮", name: "500 Robux", hype: "Roblox" },
+  { emoji: "🪙", name: "500 Robux", hype: "Roblox" },
   { emoji: "🎒", name: "Kit Boas-vindas DeQuadra", hype: "Mochila + brindes" },
 ];
 
@@ -39,7 +39,9 @@ export default function Premio() {
           <div className="grid">
             {PRIZES.map((p, i) => (
               <button key={i} className="prize" onClick={() => { setChosen(p); setScreen("claim"); }}>
-                <div className="emoji">{p.emoji}</div>
+                <div className="imgwrap">
+                  {p.img ? <img src={p.img} alt={p.name} /> : <div className="emoji">{p.emoji}</div>}
+                </div>
                 <div className="name">{p.name}</div>
                 <div className="hype">{p.hype}</div>
               </button>
