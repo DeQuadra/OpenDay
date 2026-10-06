@@ -1,8 +1,10 @@
 [build]
-  base = "client"
-  command = "npm install && npm run build"
+  # Sem "base": o Netlify instala as dependências da raiz (onde ficam
+  # express/cors/dotenv/serverless-http/@supabase, usadas pela função) e
+  # depois o "command" instala e builda o client separadamente.
+  command = "npm install --prefix client && npm run build --prefix client"
   publish = "client/dist"
-  functions = "../server/functions"
+  functions = "server/functions"
 
 [functions]
   node_bundler = "esbuild"
