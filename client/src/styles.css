@@ -147,7 +147,7 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--ink)}
 .locbtn:hover:not(:disabled){border-color:var(--ink)}
 .locbtn.loading{color:var(--soft)}
 .locbtn.done{background:var(--done); border-color:var(--done); color:#fff}
-.locbtn.denied{border-color:var(--brand); color:var(--brand)}
+.locbtn.denied,.locbtn.error,.locbtn.unsupported{border-color:var(--brand); color:var(--brand)}
 .redeem{margin-top:12px; width:100%; background:var(--brand); color:#fff; border:none; border-radius:12px; padding:16px; font-weight:800; font-size:18px; box-shadow:0 12px 24px rgba(211,28,91,.35)}
 .redeem:hover:not(:disabled){transform:translateY(-1px)}
 .redeem:disabled{opacity:.4; cursor:not-allowed; box-shadow:none}

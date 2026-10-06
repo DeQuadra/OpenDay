@@ -141,11 +141,16 @@ function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
   }
 
   function askLocation() {
-    if (!navigator.geolocation) { setLocState("denied"); return; }
+    if (!navigator.geolocation) { setLocState("unsupported"); return; }
     setLocState("loading");
     navigator.geolocation.getCurrentPosition(
       pos => { setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) }); setLocState("done"); },
-      () => setLocState("denied")
+      err => {
+        // code 1 = PERMISSION_DENIED: depois que a pessoa bloqueia, o
+        // navegador NÃO mostra o pedido de novo -- só tocar no botão não
+        // adianta, precisa liberar manualmente nas configurações do site.
+        setLocState(err.code === 1 ? "denied" : "error");
+      }
     );
   }
 
@@ -159,7 +164,10 @@ function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
   }, [loggedIn]);
 
   const effectiveName = supabaseConfigured ? profile?.name : devName.trim();
-  const canSubmit = loggedIn && locState === "done" && !sending;
+  // Localização é só um "plus": se a pessoa negar, o navegador bloquear ou
+  // der erro, ela ainda pode resgatar o prêmio sem isso -- só trava mesmo
+  // enquanto ainda não tentou (idle) ou está no meio da tentativa (loading).
+  const canSubmit = loggedIn && locState !== "idle" && locState !== "loading" && !sending;
 
   async function submit() {
     if (!canSubmit) return;
@@ -222,9 +230,17 @@ function ClaimScreen({ chosen, session, profile, onSubmitted, setLoading }) {
         <button className={"locbtn " + locState} onClick={askLocation} disabled={locState === "loading" || locState === "done"}>
           {locState === "done" ? "✓ Localização confirmada"
             : locState === "loading" ? "📍 Localizando..."
-            : locState === "denied" ? "⚠️ Toque para tentar de novo"
+            : locState === "denied" ? "⚠️ Localização bloqueada"
+            : locState === "error" ? "⚠️ Não conseguimos localizar — toque para tentar de novo"
+            : locState === "unsupported" ? "⚠️ Seu navegador não suporta localização"
             : "📍 Permitir localização"}
         </button>
+        {locState === "denied" && (
+          <p className="hint" style={{ marginTop: 2, color: "var(--soft)" }}>
+            Sem problema, você pode continuar sem permitir. Se quiser liberar: toque no ícone de
+            cadeado/informações ao lado do endereço no navegador, permita "Localização" e toque no botão acima de novo.
+          </p>
+        )}
       </div>
 
       <button className="redeem" disabled={!canSubmit} onClick={submit}>Resgatar prêmio agora</button>
